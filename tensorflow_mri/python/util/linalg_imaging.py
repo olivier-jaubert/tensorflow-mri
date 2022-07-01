@@ -143,32 +143,27 @@ class LinalgImagingMixin(tf.linalg.LinearOperator):
       input_shape: A `tf.TensorShape` representing the input shape.
       adjoint: A `boolean`. If `True`, builds from the adjoint operation.
     """
+    output_shape = self._compute_output_shape(input_shape, adjoint=adjoint)
+
     if adjoint:
       # Building from adjoint call. Input shape is the range shape.
       if hasattr(self, '_range_rank') and self._range_rank is not None:
-        # Operator has a statically known rank, so the last `rank` dimensions
-        # of `input_shape` are the domain shape and the rest are batch dims.
         self._build_range_shape = input_shape[-self._range_rank:]
         self._build_batch_shape = input_shape[:-self._range_rank]
       else:
-        # Operator does not have a rank, so include all input dimensions within
-        # the range shape (no batch dims).
         self._build_range_shape = input_shape
         self._build_batch_shape = tf.TensorShape([])
-      # Compute domain shape given range shape.
-      self._build_domain_shape = self._compute_domain_shape(
-          self._build_range_shape)
+      self._build_domain_shape = output_shape[self._build_batch_shape.rank:]
 
     else:
-      # Building from forward call. Analogous to above.
+      # Building from forward call. Input shape is the domain shape.
       if hasattr(self, '_domain_rank') and self._domain_rank is not None:
         self._build_domain_shape = input_shape[-self._domain_rank:]
         self._build_batch_shape = input_shape[:-self._domain_rank]
       else:
         self._build_domain_shape = input_shape
         self._build_batch_shape = tf.TensorShape([])
-      self._build_range_shape = self._compute_range_shape(
-          self._build_domain_shape)
+      self._build_range_shape = output_shape[self._build_batch_shape.rank:]
 
   @abc.abstractmethod
   def _transform(self, x, adjoint=False):
@@ -334,11 +329,12 @@ class LinalgImagingMixin(tf.linalg.LinearOperator):
     x = tf.reshape(x, output_shape_tensor)
     return tf.ensure_shape(x, output_shape)
 
-  def _compute_range_shape(self, domain_shape):
+  def _compute_output_shape(self, input_shape, adjoint=False):
     # Users may override this method.
-    x = None
-    outputs = self.transform(x, adjoint=False)
-    return outputs
+    with tf.Graph().as_default():
+      x = tf.compat.v1.placeholder(shape=input_shape, dtype=self.dtype)
+      outputs = self._transform(x, adjoint=adjoint)
+    return outputs.shape
 
 
 @api_util.export("linalg.LinearOperator")
@@ -980,13 +976,12 @@ DOC_LINOP_WAVELET = (
   """)
 
 
-class LinearOperatorWavelet(LinalgImagingMixin, tf.linalg.LinearOperator):  # pylint: disable=abstract-method
+class LinearOperatorWavelet(LinearOperator):  # pylint: disable=abstract-method
   def __init__(self,
                wavelet,
                mode='symmetric',
                level=None,
                axes=None,
-               domain_shape=None,
                dtype=tf.dtypes.float32,
                name="LinearOperatorWavelet"):
 
@@ -995,19 +990,14 @@ class LinearOperatorWavelet(LinalgImagingMixin, tf.linalg.LinearOperator):  # py
         mode=mode,
         level=level,
         axes=axes,
-        domain_shape=domain_shape,
         dtype=dtype,
         name=name
     )
 
-    # Minimal input checking here, will be handled by wavedec/waverec.
     self.wavelet = wavelet
     self.mode = mode
     self.level = level
     self.axes = axes
-    self._domain_shape_value = tf.TensorShape(domain_shape)
-    # The range shape is the same as the domain shape.
-    self._range_shape_value = self._domain_shape_value
 
     super().__init__(dtype,
                      is_non_singular=None,
@@ -1017,8 +1007,14 @@ class LinearOperatorWavelet(LinalgImagingMixin, tf.linalg.LinearOperator):  # py
                      name=name,
                      parameters=parameters)
 
-  def _transform(self, x, adjoint=False):
+  def _build(self, input_shape, adjoint=False):
+    super()._build(input_shape, adjoint=adjoint)
+    x = tf.zeros(input_shape, dtype=self.dtype)
+    x = wavelet_ops.wavedec(x, wavelet=self.wavelet, mode=self.mode,
+                            level=self.level, axes=self.axes)
+    _, self._coeff_slices = wavelet_ops.coeffs_to_tensor(x)
 
+  def _transform(self, x, adjoint=False):
     if adjoint:
       x = wavelet_ops.tensor_to_coeffs(x, self._coeff_slices)
       x = wavelet_ops.waverec(x, wavelet=self.wavelet, mode=self.mode,
@@ -1027,15 +1023,4 @@ class LinearOperatorWavelet(LinalgImagingMixin, tf.linalg.LinearOperator):  # py
       x = wavelet_ops.wavedec(x, wavelet=self.wavelet, mode=self.mode,
                               level=self.level, axes=self.axes)
       x, _ = wavelet_ops.coeffs_to_tensor(x, axes=self.axes)
-
     return x
-
-  def _domain_shape(self):
-    return self._domain_shape_value
-
-  def _range_shape(self):
-    return self._range_shape_value
-
-  @property
-  def axis(self):
-    return self._axis

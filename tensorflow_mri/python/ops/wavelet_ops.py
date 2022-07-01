@@ -1005,7 +1005,7 @@ def _prepare_coeffs_axes(coeffs, axes):
                      "coefficients.")
   if not isinstance(coeffs[0], tf.Tensor):
     raise ValueError("first list element must be a tensor")
-  ndim = coeffs[0].ndim
+  ndim = coeffs[0].shape.rank
 
   if len(coeffs) > 1:
     if not isinstance(coeffs[1], dict):

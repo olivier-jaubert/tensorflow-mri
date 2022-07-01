@@ -279,3 +279,55 @@ class LinearOperatorFiniteDifferenceTest(test_util.TestCase):
     self.assertIsInstance(linop.range_shape, tf.TensorShape)
     self.assertAllEqual(linop.range_shape, range_shape)
     self.assertAllEqual(linop.range_shape_tensor(), range_shape)
+
+
+
+class LinearOperatorTest(test_util.TestCase):
+
+  def test_abstract_subclass(self):
+    class MyLinearOperator(linalg_imaging.LinearOperator):
+      pass
+
+    with self.assertRaisesRegex(TypeError, "with abstract methods _transform"):
+      MyLinearOperator()
+
+  def test_subclass(self):
+    class MyLinearOperator(linalg_imaging.LinearOperator):
+      def __init__(self):
+        super().__init__(tf.float32)
+
+      def _transform(self, x, adjoint=False):
+        return x / 2 if adjoint else x * 2
+
+    x = np.arange(6).reshape([2, 3]).astype(np.float32)
+    linop = MyLinearOperator()
+
+    # Check static shapes.
+    self.assertEqual(tf.TensorShape(None), linop.domain_shape)
+    self.assertEqual(tf.TensorShape(None), linop.range_shape)
+    self.assertEqual(tf.TensorShape(None), linop.batch_shape)
+    self.assertEqual(None, linop.domain_dimension.value)
+    self.assertEqual(None, linop.range_dimension.value)
+
+    # Check transform.
+    self.assertAllClose(x * 2, linop.transform(x))
+    self.assertAllClose(x / 2, linop.transform(x, adjoint=True))
+
+    # Check static shapes again after building.
+    self.assertEqual(tf.TensorShape([2, 3]), linop.domain_shape)
+    self.assertEqual(tf.TensorShape([2, 3]), linop.range_shape)
+    self.assertEqual(tf.TensorShape([]), linop.batch_shape)
+    self.assertEqual(6, linop.domain_dimension.value)
+    self.assertEqual(6, linop.range_dimension.value)
+
+
+class LinearOperatorWaveletTest(test_util.TestCase):
+  def test_basic(self):
+    linop = linalg_imaging.LinearOperatorWavelet('haar', level=1, axes=[-2, -1])
+
+    rng = np.random.default_rng(1234)
+    x = rng.normal(size=[6, 4]).astype(np.float32)
+
+    # Test round trip A^T A x == x.
+    y = linop.transform(linop.transform(x), adjoint=True)
+    self.assertAllClose(x, y)
