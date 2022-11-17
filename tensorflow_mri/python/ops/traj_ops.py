@@ -503,7 +503,7 @@ def _radial_density_from_theta(base_resolution, theta, readout_os=2.0):
   # pylint: disable=unexpected-keyword-arg,no-value-for-parameter
 
   # Oversampling.
-  samples = int(base_resolution * readout_os + 0.5)
+  samples = int(float(base_resolution) * readout_os + 0.5)
 
   tf.debugging.assert_rank(theta, 1, message=(
     "`theta` must be of rank 1, but received shape: {}").format(theta.shape))
