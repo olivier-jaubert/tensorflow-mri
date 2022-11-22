@@ -638,7 +638,7 @@ def radial_waveform(base_resolution, readout_os=2.0, rank=2):
   # pylint: disable=unexpected-keyword-arg,no-value-for-parameter
 
   # Number of samples with oversampling.
-  samples = int(base_resolution * readout_os + 0.5)
+  samples = int(float(base_resolution) * readout_os + 0.5)
 
   # Compute 1D spoke.
   waveform = tf.range(-samples // 2, samples // 2, dtype=tf.float32)
